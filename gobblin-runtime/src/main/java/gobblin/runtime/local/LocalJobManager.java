@@ -12,10 +12,12 @@
 package gobblin.runtime.local;
 
 import java.io.File;
-import java.io.FileReader;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.lang.reflect.Constructor;
 import java.net.URI;
+import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
@@ -25,6 +27,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 
+import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.io.monitor.FileAlterationListener;
 import org.apache.commons.io.monitor.FileAlterationListenerAdaptor;
 import org.apache.commons.io.monitor.FileAlterationMonitor;
@@ -488,7 +491,7 @@ public class LocalJobManager extends AbstractIdleService {
    * Schedule locally configured Gobblin jobs.
    */
   private void scheduleLocallyConfiguredJobs()
-      throws IOException, JobException {
+      throws ConfigurationException, JobException {
     LOG.info("Scheduling locally configured jobs");
     for (Properties jobProps : loadLocalJobConfigs()) {
       boolean runOnce = Boolean.valueOf(jobProps.getProperty(ConfigurationKeys.JOB_RUN_ONCE_KEY, "false"));
@@ -500,7 +503,7 @@ public class LocalJobManager extends AbstractIdleService {
    * Load local job configurations.
    */
   private List<Properties> loadLocalJobConfigs()
-      throws IOException {
+      throws ConfigurationException {
     List<Properties> jobConfigs = SchedulerUtils.loadJobConfigs(this.properties);
     LOG.info(String.format(jobConfigs.size() <= 1 ? "Loaded %d job configuration" : "Loaded %d job configurations",
         jobConfigs.size()));
@@ -582,7 +585,8 @@ public class LocalJobManager extends AbstractIdleService {
 
       private void loadJobConfig(Properties jobProps, File file) {
         try {
-          jobProps.load(new FileReader(file));
+          jobProps.load(new InputStreamReader(new FileInputStream(file), Charset.forName(
+              ConfigurationKeys.DEFAULT_CHARSET_ENCODING)));
           jobProps.setProperty(ConfigurationKeys.JOB_CONFIG_FILE_PATH_KEY, file.getAbsolutePath());
         } catch (Exception e) {
           LOG.error("Failed to load job configuration from file " + file.getAbsolutePath(), e);

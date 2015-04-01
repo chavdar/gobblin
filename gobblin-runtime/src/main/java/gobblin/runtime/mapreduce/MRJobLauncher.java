@@ -20,6 +20,7 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.net.URI;
+import java.nio.charset.Charset;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
@@ -43,7 +44,6 @@ import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.lib.input.NLineInputFormat;
-import org.apache.hadoop.mapreduce.lib.output.NullOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.SequenceFileOutputFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -182,15 +182,22 @@ public class MRJobLauncher extends AbstractJobLauncher {
     // Do not cancel delegation tokens after job has completed (HADOOP-7002)
     this.conf.setBoolean("mapreduce.job.complete.cancel.delegation.tokens", false);
 
+    // Necessary for compatibility with Azkaban's hadoopJava job type
+    // http://azkaban.github.io/azkaban/docs/2.5/#hadoopjava-type
+    if (System.getenv("HADOOP_TOKEN_FILE_LOCATION") != null) {
+      conf.set("mapreduce.job.credentials.binary", System.getenv("HADOOP_TOKEN_FILE_LOCATION"));
+    }
+
     // Preparing a Hadoop MR job
     this.job = Job.getInstance(this.conf, JOB_NAME_PREFIX + jobName);
     this.job.setJarByClass(MRJobLauncher.class);
     this.job.setMapperClass(TaskRunner.class);
+
     // The job is mapper-only
     this.job.setNumReduceTasks(0);
 
     this.job.setInputFormatClass(NLineInputFormat.class);
-    this.job.setOutputFormatClass(NullOutputFormat.class);
+    this.job.setOutputFormatClass(GobblinOutputFormat.class);
     this.job.setMapOutputKeyClass(NullWritable.class);
     this.job.setMapOutputValueClass(NullWritable.class);
 
@@ -199,6 +206,7 @@ public class MRJobLauncher extends AbstractJobLauncher {
 
     // Job input path is where input work unit files are stored
     Path jobInputPath = new Path(mrJobDir, "input");
+
     // Prepare job input
     Path jobInputFile = prepareJobInput(jobProps.getProperty(ConfigurationKeys.JOB_ID_KEY), jobInputPath, workUnits);
     NLineInputFormat.addInputPath(this.job, jobInputFile);
@@ -331,7 +339,8 @@ public class MRJobLauncher extends AbstractJobLauncher {
       Path jobInputFile = new Path(jobInputPath, jobId + ".wulist");
       // Open the job input file
       OutputStream os = closer.register(this.fs.create(jobInputFile));
-      Writer osw = closer.register(new OutputStreamWriter(os));
+      Writer osw = closer.register(new OutputStreamWriter(os, Charset.forName(
+          ConfigurationKeys.DEFAULT_CHARSET_ENCODING)));
       Writer bw = closer.register(new BufferedWriter(osw));
 
       // Serialize each work unit into a file named after the task ID
@@ -420,7 +429,16 @@ public class MRJobLauncher extends AbstractJobLauncher {
   }
 
   /**
-   * The mapper class that runs a given {@link Task}.
+   * The mapper class that runs assigned {@link WorkUnit}s.
+   *
+   * <p>
+   *   The {@link #map} method de-serializes a {@link WorkUnit} (maybe a {@link MultiWorkUnit})
+   *   from each input file and add the {@link WorkUnit} (or a list of {@link WorkUnit}s if it
+   *   is a {@link MultiWorkUnit} to the list of {@link WorkUnit}s to run. The {@link #run} method
+   *   actually runs the list of {@link WorkUnit}s in the {@link TaskExecutor}. This allows the
+   *   {@link WorkUnit}s to be run in parallel if the {@link TaskExecutor} is configured to have
+   *   more than one thread in its thread pool.
+   * </p>
    */
   public static class TaskRunner extends Mapper<LongWritable, Text, NullWritable, NullWritable> {
 
@@ -429,6 +447,9 @@ public class MRJobLauncher extends AbstractJobLauncher {
     private TaskExecutor taskExecutor;
     private TaskStateTracker taskStateTracker;
     private ServiceManager serviceManager;
+
+    // A list of WorkUnits (flattened for MultiWorkUnits) to be run by this mapper
+    private final List<WorkUnit> workUnits = Lists.newArrayList();
 
     @Override
     protected void setup(Context context) {
@@ -449,6 +470,23 @@ public class MRJobLauncher extends AbstractJobLauncher {
         this.serviceManager.startAsync().awaitHealthy(5, TimeUnit.SECONDS);
       } catch (TimeoutException te) {
         // Ignored
+      }
+    }
+
+    @Override
+    public void run(Context context)
+        throws IOException, InterruptedException {
+      this.setup(context);
+
+      try {
+        // De-serialize and collect the list of WorkUnits to run
+        while (context.nextKeyValue()) {
+          this.map(context.getCurrentKey(), context.getCurrentValue(), context);
+        }
+        // Actually run the list of WorkUnits
+        runWorkUnits(this.workUnits);
+      } finally {
+        this.cleanup(context);
       }
     }
 
@@ -475,8 +513,11 @@ public class MRJobLauncher extends AbstractJobLauncher {
         closer.close();
       }
 
-      runWorkUnits(
-          workUnit instanceof MultiWorkUnit ? ((MultiWorkUnit) workUnit).getWorkUnits() : Lists.newArrayList(workUnit));
+      if (workUnit instanceof MultiWorkUnit) {
+        this.workUnits.addAll(((MultiWorkUnit) workUnit).getWorkUnits());
+      } else {
+        this.workUnits.add(workUnit);
+      }
     }
 
     @Override

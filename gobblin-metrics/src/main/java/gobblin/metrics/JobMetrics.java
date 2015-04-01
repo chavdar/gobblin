@@ -14,6 +14,7 @@ package gobblin.metrics;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.URI;
+import java.nio.charset.Charset;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -388,11 +389,11 @@ public class JobMetrics implements MetricSet {
   }
 
   /**
-   * Get metrics of the given type in the given group with the given ID (either a job ID or a task ID).
+   * Get metrics of a given type in a given group that contain a given ID in the metric names.
    *
    * @param type metric type
    * @param group metric group
-   * @param id metric ID (either a job ID or a task ID)
+   * @param id metric ID
    * @return a {@link java.util.Map} with keys being metric names and values being the
    *         {@link com.codahale.metrics.Metric}s
    */
@@ -487,8 +488,10 @@ public class JobMetrics implements MetricSet {
         append = true;
       }
 
-      PrintStream ps = append ? this.closer.register(new PrintStream(fs.append(metricLogFile)))
-          : this.closer.register(new PrintStream(fs.create(metricLogFile)));
+      PrintStream ps = append ? this.closer
+          .register(new PrintStream(fs.append(metricLogFile), true, ConfigurationKeys.DEFAULT_CHARSET_ENCODING))
+          : this.closer
+              .register(new PrintStream(fs.create(metricLogFile), true, ConfigurationKeys.DEFAULT_CHARSET_ENCODING));
       this.fileReporter = Optional
           .of(ConsoleReporter.forRegistry(this.metricRegistry).outputTo(ps).convertRatesTo(TimeUnit.SECONDS)
               .convertDurationsTo(TimeUnit.MILLISECONDS).build());

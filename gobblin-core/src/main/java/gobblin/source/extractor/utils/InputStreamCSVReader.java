@@ -11,6 +11,7 @@
 
 package gobblin.source.extractor.utils;
 
+import gobblin.configuration.ConfigurationKeys;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -18,6 +19,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.StreamTokenizer;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 
 
@@ -38,7 +40,7 @@ public class InputStreamCSVReader {
   }
 
   public InputStreamCSVReader(InputStream input) {
-    this(new InputStreamReader(input));
+    this(new InputStreamReader(input, Charset.forName(ConfigurationKeys.DEFAULT_CHARSET_ENCODING)));
   }
 
   public InputStreamCSVReader(BufferedReader input) {
@@ -46,7 +48,8 @@ public class InputStreamCSVReader {
   }
 
   public InputStreamCSVReader(String input) {
-    this(new InputStreamReader(new ByteArrayInputStream(input.getBytes())));
+    this(new InputStreamReader(new ByteArrayInputStream(input.getBytes()),
+        Charset.forName(ConfigurationKeys.DEFAULT_CHARSET_ENCODING)), ',', '\"');
   }
 
   public InputStreamCSVReader(Reader input, char customizedSeparator) {
@@ -54,7 +57,8 @@ public class InputStreamCSVReader {
   }
 
   public InputStreamCSVReader(InputStream input, char customizedSeparator) {
-    this(new InputStreamReader(input), customizedSeparator, '\"');
+    this(new InputStreamReader(input, Charset.forName(ConfigurationKeys.DEFAULT_CHARSET_ENCODING)), customizedSeparator,
+        '\"');
   }
 
   public InputStreamCSVReader(BufferedReader input, char customizedSeparator) {
@@ -62,7 +66,8 @@ public class InputStreamCSVReader {
   }
 
   public InputStreamCSVReader(String input, char customizedSeparator) {
-    this(new InputStreamReader(new ByteArrayInputStream(input.getBytes())), customizedSeparator, '\"');
+    this(new InputStreamReader(new ByteArrayInputStream(input.getBytes()),
+        Charset.forName(ConfigurationKeys.DEFAULT_CHARSET_ENCODING)), customizedSeparator, '\"');
   }
 
   public InputStreamCSVReader(Reader input, char customizedSeparator, char enclosedChar) {
@@ -70,11 +75,13 @@ public class InputStreamCSVReader {
   }
 
   public InputStreamCSVReader(InputStream input, char customizedSeparator, char enclosedChar) {
-    this(new InputStreamReader(input), customizedSeparator, enclosedChar);
+    this(new InputStreamReader(input, Charset.forName(ConfigurationKeys.DEFAULT_CHARSET_ENCODING)), customizedSeparator,
+        enclosedChar);
   }
 
   public InputStreamCSVReader(String input, char customizedSeparator, char enclosedChar) {
-    this(new InputStreamReader(new ByteArrayInputStream(input.getBytes())), customizedSeparator, enclosedChar);
+    this(new InputStreamReader(new ByteArrayInputStream(input.getBytes()),
+        Charset.forName(ConfigurationKeys.DEFAULT_CHARSET_ENCODING)), customizedSeparator, enclosedChar);
   }
 
   public InputStreamCSVReader(BufferedReader input, char separator, char enclosedChar) {
@@ -91,8 +98,12 @@ public class InputStreamCSVReader {
     atEOF = false;
   }
 
-  public ArrayList<String> nextRecord()
-      throws IOException {
+  public ArrayList<String> splitRecord() throws IOException {
+    ArrayList<String> record = this.getNextRecordFromStream();
+    return record;
+  }
+
+  public ArrayList<String> nextRecord() throws IOException {
     ArrayList<String> record = this.getNextRecordFromStream();
 
     // skip record if it is empty

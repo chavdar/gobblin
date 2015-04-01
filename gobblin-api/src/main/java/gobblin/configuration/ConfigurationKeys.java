@@ -101,6 +101,8 @@ public class ConfigurationKeys {
   public static final String DEFAULT_MAX_TASK_RETRIES = "5";
   public static final String TASK_RETRY_INTERVAL_IN_SEC_KEY = "task.retry.intervalinsec";
   public static final String DEFAULT_TASK_RETRY_INTERVAL_IN_SEC = "300";
+  public static final String OVERWRITE_CONFIGS_IN_STATESTORE = "overwrite.configs.in.statestore";
+  public static final boolean DEFAULT_OVERWRITE_CONFIGS_IN_STATESTORE = Boolean.FALSE;
 
   /**
    * Configuration properties used internally.
@@ -154,6 +156,8 @@ public class ConfigurationKeys {
   public static final String CONVERTER_FILTER_FIELD_VALUE = "converter.filter.value";
   public static final String CONVERTER_IS_EPOCH_TIME_IN_SECONDS = "converter.is.epoch.time.in.seconds";
   public static final String CONVERTER_AVRO_EXTRACTOR_FIELD_PATH = "converter.avro.extractor.field.path";
+  public static final String CONVERTER_STRING_FILTER_PATTERN = "converter.string.filter.pattern";
+  public static final String CONVERTER_STRING_SPLITTER_DELIMITER = "converter.string.splitter.delimiter";
 
   /**
    * Fork operator configuration properties.
@@ -308,6 +312,8 @@ public class ConfigurationKeys {
    */
   public static final String MR_JOB_ROOT_DIR_KEY = "mr.job.root.dir";
   public static final String MR_JOB_MAX_MAPPERS_KEY = "mr.job.max.mappers";
+  public static final String MR_INCLUDE_TASK_COUNTERS_KEY = "mr.include.task.counters";
+  public static final boolean DEFAULT_MR_INCLUDE_TASK_COUNTERS = Boolean.FALSE;
 
   /**
    * Configuration properties for email settings.
@@ -363,4 +369,9 @@ public class ConfigurationKeys {
   public static final String DEFAULT_JOB_HISTORY_STORE_USER = "gobblin";
   public static final String JOB_HISTORY_STORE_PASSWORD_KEY = "job.history.store.password";
   public static final String DEFAULT_JOB_HISTORY_STORE_PASSWORD = "gobblin";
+
+  /**
+   * Other configuration properties.
+   */
+  public static final String DEFAULT_CHARSET_ENCODING = "UTF-8";
 }
