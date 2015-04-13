@@ -57,9 +57,10 @@ public class SourceState extends State {
   }
 
   /**
+   * Constructor.
    *
-   * @param properties <p>properties defined in the .pull file</p>
-   * @param previousTaskStates <p>properties stored the tasks of the previous run for this source</p>
+   * @param properties job configuration properties
+   * @param previousTaskStates list of previous task states
    */
   public SourceState(State properties, List<WorkUnitState> previousTaskStates) {
     addAll(properties);

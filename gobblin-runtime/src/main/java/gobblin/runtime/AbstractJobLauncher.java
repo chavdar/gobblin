@@ -65,9 +65,6 @@ public abstract class AbstractJobLauncher implements JobLauncher {
   // Store for persisting job state
   private final StateStore jobStateStore;
 
-  // Store for persisting task states
-  private final StateStore taskStateStore;
-
   // Job history store that stores job execution information
   private final Optional<JobHistoryStore> jobHistoryStore;
 
@@ -78,9 +75,6 @@ public abstract class AbstractJobLauncher implements JobLauncher {
     this.jobStateStore = new FsStateStore(
         properties.getProperty(ConfigurationKeys.STATE_STORE_FS_URI_KEY, ConfigurationKeys.LOCAL_FS_URI),
         properties.getProperty(ConfigurationKeys.STATE_STORE_ROOT_DIR_KEY), JobState.class);
-    this.taskStateStore = new FsStateStore(
-        properties.getProperty(ConfigurationKeys.STATE_STORE_FS_URI_KEY, ConfigurationKeys.LOCAL_FS_URI),
-        properties.getProperty(ConfigurationKeys.STATE_STORE_ROOT_DIR_KEY), TaskState.class);
 
     if (Boolean
         .valueOf(properties.getProperty(ConfigurationKeys.JOB_HISTORY_STORE_ENABLED_KEY, Boolean.FALSE.toString()))) {
@@ -115,7 +109,7 @@ public abstract class AbstractJobLauncher implements JobLauncher {
       workUnitState.setProp(ConfigurationKeys.TASK_ID_KEY, taskId);
 
       // Create a new task from the work unit and submit the task to run
-      Task task = new Task(new TaskContext(workUnitState), stateTracker, Optional.of(countDownLatch));
+      Task task = new Task(new TaskContext(workUnitState), stateTracker, taskExecutor, Optional.of(countDownLatch));
       stateTracker.registerNewTask(task);
       tasks.add(task);
       LOG.info(String.format("Submitting task %s to run", taskId));
@@ -179,17 +173,17 @@ public abstract class AbstractJobLauncher implements JobLauncher {
     JobState jobState = new JobState(jobName, jobId);
     // Add all job configuration properties of this job
     jobState.addAll(jobProps);
-    // Remember the number of consecutive failures of this job in the past
-    jobState.setProp(ConfigurationKeys.JOB_FAILURES_KEY, getFailureCount(jobName));
     jobState.setState(JobState.RunningState.PENDING);
-
-    LOG.info("Starting job " + jobId);
 
     // Initialize the source for the job
     SourceState sourceState;
     Source<?, ?> source;
     try {
-      sourceState = new SourceState(jobState, getPreviousWorkUnitStates(jobName));
+      JobState previousJobState = getPreviousJobState(jobName);
+      // Remember the number of consecutive failures of this job in the past
+      jobState.setProp(ConfigurationKeys.JOB_FAILURES_KEY,
+          previousJobState.getPropAsInt(ConfigurationKeys.JOB_FAILURES_KEY, 0));
+      sourceState = new SourceState(jobState, getPreviousWorkUnitStates(previousJobState));
       source = new SourceDecorator(initSource(jobProps), jobId, LOG);
     } catch (Throwable t) {
       String errMsg = "Failed to initialize the source for job " + jobId;
@@ -218,6 +212,8 @@ public abstract class AbstractJobLauncher implements JobLauncher {
     long startTime = System.currentTimeMillis();
     jobState.setStartTime(startTime);
     jobState.setState(JobState.RunningState.RUNNING);
+
+    LOG.info("Starting job " + jobId);
 
     // Add work units and assign task IDs to them
     int taskIdSequence = 0;
@@ -350,29 +346,6 @@ public abstract class AbstractJobLauncher implements JobLauncher {
       throws IOException;
 
   /**
-   * Get the number of consecutive failures of the given job in the past.
-   */
-  private int getFailureCount(String jobName) {
-    try {
-      if (!this.jobStateStore.exists(jobName, "current" + JOB_STATE_STORE_TABLE_SUFFIX)) {
-        return 0;
-      }
-
-      List<? extends State> jobStateList = this.jobStateStore.getAll(jobName, "current" + JOB_STATE_STORE_TABLE_SUFFIX);
-      if (jobStateList.isEmpty()) {
-        return 0;
-      }
-
-      State prevJobState = jobStateList.get(0);
-      // Read failure count from the persisted job state of its most recent run
-      return prevJobState.getPropAsInt(ConfigurationKeys.JOB_FAILURES_KEY, 0);
-    } catch (IOException ioe) {
-      LOG.warn("Failed to read the previous job state for job " + jobName, ioe);
-      return 0;
-    }
-  }
-
-  /**
    * Initialize the source for the given job.
    */
   private Source<?, ?> initSource(Properties jobProps)
@@ -395,17 +368,38 @@ public abstract class AbstractJobLauncher implements JobLauncher {
   }
 
   /**
-   * Get a list of work unit states of the most recent run of the given job.
+   * Get the job state of the most recent run of the job.
    */
   @SuppressWarnings("unchecked")
-  private List<WorkUnitState> getPreviousWorkUnitStates(String jobName)
+  private JobState getPreviousJobState(String jobName)
       throws IOException {
-    if (this.taskStateStore.exists(jobName, "current" + TASK_STATE_STORE_TABLE_SUFFIX)) {
-      // Read the task states of the most recent run of the job
-      return (List<WorkUnitState>) this.taskStateStore.getAll(jobName, "current" + TASK_STATE_STORE_TABLE_SUFFIX);
+    if (this.jobStateStore.exists(jobName, "current" + JOB_STATE_STORE_TABLE_SUFFIX)) {
+      // Read the job state of the most recent run of the job
+      List<JobState> previousJobStateList =
+          (List<JobState>) this.jobStateStore.getAll(jobName, "current" + JOB_STATE_STORE_TABLE_SUFFIX);
+      if (!previousJobStateList.isEmpty()) {
+        // There should be a single job state on the list if the list is not empty
+        return previousJobStateList.get(0);
+      }
     }
 
-    return Lists.newArrayList();
+    LOG.warn("No previous job state found for job " + jobName);
+    return new JobState();
+  }
+
+  /**
+   * Get the list of {@link WorkUnitState}s in the given previous {@link JobState}.
+   */
+  private List<WorkUnitState> getPreviousWorkUnitStates(JobState previousJobState) {
+    List<WorkUnitState> previousWorkUnitStates = Lists.newArrayList();
+    for (TaskState taskState : previousJobState.getTaskStates()) {
+      WorkUnitState workUnitState = new WorkUnitState(taskState.getWorkunit());
+      workUnitState.setId(taskState.getId());
+      workUnitState.addAll(taskState);
+      previousWorkUnitStates.add(workUnitState);
+    }
+
+    return previousWorkUnitStates;
   }
 
   /**
@@ -532,11 +526,8 @@ public abstract class AbstractJobLauncher implements JobLauncher {
     String jobName = jobState.getJobName();
     String jobId = jobState.getJobId();
 
-    LOG.info("Persisting job/task states of job " + jobId);
-    this.taskStateStore.putAll(jobName, jobId + TASK_STATE_STORE_TABLE_SUFFIX, jobState.getTaskStates());
+    LOG.info("Persisting job states of job " + jobId);
     this.jobStateStore.put(jobName, jobId + JOB_STATE_STORE_TABLE_SUFFIX, jobState);
-    this.taskStateStore
-        .createAlias(jobName, jobId + TASK_STATE_STORE_TABLE_SUFFIX, "current" + TASK_STATE_STORE_TABLE_SUFFIX);
     this.jobStateStore
         .createAlias(jobName, jobId + JOB_STATE_STORE_TABLE_SUFFIX, "current" + JOB_STATE_STORE_TABLE_SUFFIX);
   }
