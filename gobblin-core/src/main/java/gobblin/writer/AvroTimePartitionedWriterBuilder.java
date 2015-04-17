@@ -13,29 +13,20 @@ package gobblin.writer;
 
 import java.io.IOException;
 
-import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
-import gobblin.configuration.ConfigurationKeys;
-import gobblin.configuration.State;
-import gobblin.util.ForkOperatorUtils;
-import gobblin.util.WriterUtils;
-
-
 /**
- * A {@link DataWriterBuilder} for building {@link DataWriter} that writes in Avro format.
- *
- * @author ynli
+ * Extends the {@link AvroDataWriterBuilder} class, and is used to writer Avro data in a date-partitioned fashion. There
+ * is currently only support for writing data to HDFS.
  */
-@SuppressWarnings("unused")
-public class AvroDataWriterBuilder extends DataWriterBuilder<Schema, GenericRecord> {
+public class AvroTimePartitionedWriterBuilder extends AvroDataWriterBuilder {
 
   @Override
-  public DataWriter<GenericRecord> build()
-      throws IOException {
+  public DataWriter<GenericRecord> build() throws IOException {
+
     Preconditions.checkNotNull(this.destination);
     Preconditions.checkArgument(!Strings.isNullOrEmpty(this.writerId));
     Preconditions.checkNotNull(this.schema);
@@ -43,14 +34,11 @@ public class AvroDataWriterBuilder extends DataWriterBuilder<Schema, GenericReco
 
     switch (this.destination.getType()) {
       case HDFS:
-        State properties = this.destination.getProperties();
-
-        String fileName =
-            WriterUtils.getWriterFileName(properties, this.branches, this.branch, this.writerId, this.format.getExtension());
-
-        return new AvroHdfsDataWriter(properties, fileName, this.schema, this.branches, this.branch);
+        return new AvroHdfsTimePartitionedWriter(this.destination, this.writerId, this.schema, this.format,
+            this.branches, this.branch);
       case KAFKA:
-        return new AvroKafkaDataWriter();
+        throw new UnsupportedOperationException("The builder " + this.getClass().getName() + " cannot write to "
+            + this.destination.getType());
       default:
         throw new RuntimeException("Unknown destination type: " + this.destination.getType());
     }

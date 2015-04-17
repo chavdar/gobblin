@@ -66,6 +66,8 @@ ext.externalDependency = [
   "hiveExec": "org.apache.hive:hive-exec:"+hiveVersion,
   "httpclient": "org.apache.httpcomponents:httpclient:4.2.3",
   "httpcore": "org.apache.httpcomponents:httpcore:4.2.1",
+  "kafka": "org.apache.kafka:kafka_2.10:0.8.2.1",
+  "kafkaTest": "org.apache.kafka:kafka_2.10:0.8.2.1:test",
   "quartz": "org.quartz-scheduler:quartz:2.2.1",
   "testng": "org.testng:testng:6.5.1",
   "jacksonCore": "org.codehaus.jackson:jackson-core-asl:1.9.13",
@@ -120,8 +122,15 @@ subprojects {
   apply plugin: 'java'
   apply plugin: 'idea'
   apply plugin: 'eclipse'
+  apply plugin: 'findbugs'
 
   sourceCompatibility = JavaVersion.VERSION_1_6
+
+  findbugs {
+    ignoreFailures = true
+    effort = "max"
+    excludeFilter = file(rootProject.projectDir.path + "/ligradle/findbugs/findbugsExclude.xml")
+  }
 
   configurations {
     compile
